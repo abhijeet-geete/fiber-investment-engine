@@ -1,5 +1,6 @@
 import csv
 import io
+import time
 from collections import Counter
 
 import pandas as pd
@@ -10,6 +11,86 @@ import main
 
 st.set_page_config(page_title="Fiber Investment Decision Engine", layout="wide")
 
+st.markdown(
+    """
+    <style>
+    .stApp {
+        background: linear-gradient(180deg, #f5f7fb 0%, #eef4ff 100%);
+    }
+
+    .block-container {
+        padding-top: 1.2rem;
+        padding-bottom: 2rem;
+        max-width: 1400px;
+    }
+
+    h1, h2, h3 {
+        color: #14213d;
+    }
+
+    .subtitle {
+        color: #4f5d75;
+        margin-top: -0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    .card {
+        background: white;
+        padding: 1.25rem 1.25rem 1rem 1.25rem;
+        border-radius: 16px;
+        border: 1px solid #e6ebf2;
+        box-shadow: 0 8px 24px rgba(20, 33, 61, 0.06);
+        margin-bottom: 1rem;
+    }
+
+    .metric-tile {
+        background: white;
+        padding: 1rem;
+        border-radius: 14px;
+        border: 1px solid #e6ebf2;
+        box-shadow: 0 6px 20px rgba(20, 33, 61, 0.05);
+        text-align: center;
+    }
+
+    .pill {
+        display: inline-block;
+        padding: 0.35rem 0.7rem;
+        border-radius: 999px;
+        font-weight: 600;
+        font-size: 0.9rem;
+        margin-right: 0.4rem;
+    }
+
+    .pill-green { background: #e8f7ee; color: #1b7f3a; }
+    .pill-yellow { background: #fff6db; color: #9a6a00; }
+    .pill-red { background: #fdecec; color: #b42318; }
+    .pill-blue { background: #ebf3ff; color: #175cd3; }
+
+    input, textarea, select {
+        background-color: white !important;
+    }
+
+    div[data-baseweb="input"] input {
+        background-color: white !important;
+    }
+
+    div[data-baseweb="select"] > div {
+        background-color: white !important;
+    }
+
+    div[data-testid="stMetricValue"] {
+        font-size: 1.05rem;
+    }
+
+    .small-note {
+        color: #667085;
+        font-size: 0.9rem;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 PLAN_DESCRIPTIONS = {
     "Fiber 100": "Best for smaller households with light internet needs such as browsing, email, and a few connected devices.",
@@ -17,6 +98,22 @@ PLAN_DESCRIPTIONS = {
     "Fiber Gig": "Strong choice for larger households, heavy streaming, work-from-home setups, gaming, and many active devices.",
     "2 Gig Fiber": "Premium option for very high-demand homes with many users, advanced gaming, creator workloads, and high device density.",
 }
+
+
+def recommendation_badge_html(label: str) -> str:
+    if label == "APPROVE":
+        return "<span class='pill pill-green'>🟢 APPROVE</span>"
+    if label == "REVIEW":
+        return "<span class='pill pill-yellow'>🟡 REVIEW</span>"
+    return "<span class='pill pill-red'>🔴 DECLINE</span>"
+
+
+def confidence_badge_html(label: str) -> str:
+    if label == "High":
+        return "<span class='pill pill-green'>🟢 High</span>"
+    if label == "Medium":
+        return "<span class='pill pill-yellow'>🟡 Medium</span>"
+    return "<span class='pill pill-red'>🔴 Low</span>"
 
 
 def result_to_row(result: dict) -> dict:
@@ -141,20 +238,24 @@ def load_results_from_uploaded_csv(uploaded_file) -> list[dict]:
     return results
 
 
-def recommendation_badge(label: str) -> str:
-    if label == "APPROVE":
-        return "🟢 APPROVE"
-    if label == "REVIEW":
-        return "🟡 REVIEW"
-    return "🔴 DECLINE"
+def render_header():
+    st.markdown("<h1>🚀 Fiber Investment Decision Engine</h1>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='subtitle'>Decision workspace for fiber deployment planning, customer-fit scoring, and portfolio analysis.</div>",
+        unsafe_allow_html=True,
+    )
 
 
-def confidence_badge(label: str) -> str:
-    if label == "High":
-        return "🟢 High"
-    if label == "Medium":
-        return "🟡 Medium"
-    return "🔴 Low"
+def render_metric_tile(title: str, value: str):
+    st.markdown(
+        f"""
+        <div class="metric-tile">
+            <div class="small-note">{title}</div>
+            <div style="font-size:1.2rem;font-weight:700;color:#14213d;">{value}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_single_result(result: dict) -> None:
@@ -162,24 +263,31 @@ def render_single_result(result: dict) -> None:
 
     st.subheader("Decision Summary")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Recommendation", recommendation_badge(result["recommendation"]))
-    c2.metric("Confidence", confidence_badge(result["confidence"]))
-    c3.metric("Final Score", result["final_score"])
-    c4.metric("Break-even (months)", f"{result['break_even_months']:.1f}")
+    with c1:
+        render_metric_tile("Recommendation", recommendation_badge_html(result["recommendation"]))
+    with c2:
+        render_metric_tile("Confidence", confidence_badge_html(result["confidence"]))
+    with c3:
+        render_metric_tile("Final Score", str(result["final_score"]))
+    with c4:
+        render_metric_tile("Break-even (months)", f"{result['break_even_months']:.1f}")
 
-    left, right = st.columns([1, 1])
+    left, right = st.columns([1.1, 1])
 
     with left:
         st.markdown("### Recommended Plan")
-        st.success(
-            f"""**{customer.recommended_plan_name}**
-
-**Speed:** {customer.recommended_plan_speed_mbps} Mbps  
-**Monthly Value:** ${customer.monthly_plan_value:.2f}  
-**Installation Cost:** ${customer.installation_cost:.2f}  
-**Installation Cost Tier:** {customer.installation_cost_tier}"""
+        st.markdown(
+            f"""
+            <div class="pill pill-blue">{customer.recommended_plan_name}</div>
+            <div style="margin-top:0.8rem;">
+            <strong>Speed:</strong> {customer.recommended_plan_speed_mbps} Mbps<br>
+            <strong>Modeled Monthly Value:</strong> ${customer.monthly_plan_value:.2f}<br>
+            <strong>Installation Cost:</strong> ${customer.installation_cost:.2f}<br>
+            <strong>Installation Cost Tier:</strong> {customer.installation_cost_tier}
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-
         st.markdown("### Why This Plan")
         for item in result["plan_justification"]:
             st.write(f"- {item}")
@@ -187,7 +295,7 @@ def render_single_result(result: dict) -> None:
         st.markdown("### What Would Improve This Decision")
         for item in result["improvement_suggestions"]:
             st.write(f"- {item}")
-
+        
     with right:
         st.markdown("### Customer Profile")
         st.write(f"**Customer:** {customer.customer_name}")
@@ -206,7 +314,8 @@ def render_single_result(result: dict) -> None:
         else:
             st.write(f"**Lease Months Remaining:** {customer.lease_months_remaining}")
             st.write(f"**Likely to Renew:** {customer.likely_to_renew}")
-
+        
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown("### Plan Evaluation")
     plan_rows = []
     for item in result["evaluated_plans"]:
@@ -215,144 +324,136 @@ def render_single_result(result: dict) -> None:
             "Base Score": item["base_score"],
             "Demand Adj": item["demand_score"],
             "Final Score": item["score"],
-            "Decision": recommendation_badge(item["recommendation"]),
+            "Decision": item["recommendation"],
             "Break-even Months": round(item["break_even_months"], 1),
             "Demand Fit": item["demand_reason"],
         })
-    st.dataframe(pd.DataFrame(plan_rows), use_container_width=True)
-
-    st.markdown("### Decision Drivers")
-    _, risk_reasons = main.evaluate_risk(customer)
-    for item in risk_reasons:
-        st.write(f"- {item}")
-
-    st.markdown("### Confidence Drivers")
-    _, confidence_reasons = main.calculate_confidence(customer)
-    for item in confidence_reasons:
-        st.write(f"- {item}")
-
+    st.dataframe(pd.DataFrame(plan_rows), width="stretch")
+    
+    drivers_left, drivers_right = st.columns(2)
+    with drivers_left:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.markdown("### Decision Drivers")
+        _, risk_reasons = main.evaluate_risk(customer)
+        for item in risk_reasons:
+            st.write(f"- {item}")
+        
+    with drivers_right:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.markdown("### Confidence Drivers")
+        _, confidence_reasons = main.calculate_confidence(customer)
+        for item in confidence_reasons:
+            st.write(f"- {item}")
+        
 
 def render_reasoning_tab() -> None:
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.subheader("How the engine makes a decision")
     st.markdown(
         """
-This tool follows a simple step-by-step process so the result is explainable, not a black box.
+This tool follows a step-by-step decision process so the output is explainable.
 
-### 1. It gathers the customer profile
-The engine first looks at the customer basics:
+### 1. Customer profile
+The engine gathers core facts:
 - homeowner or renter
 - new or existing resident
 - household size
-- number of active devices
-- current provider and whether they are unhappy
+- active devices
+- current provider and switching intent
 - credit score
 - state
 
-This tells the engine **who the customer is**, **how likely they are to switch**, and **what kind of internet demand they may have**.
+### 2. Installation cost estimate
+The system assigns an install-cost tier based on state:
+- **Low-cost tier:** $800
+- **Medium-cost tier:** $1200
+- **High-cost tier:** $1600
 
-### 2. It estimates installation cost
-Instead of asking for a manual install cost, the engine assigns a **low, medium, or high install-cost tier** based on state.
-That gives a rough real-world estimate of the upfront capital needed to install fiber.
+### 3. All plans are tested
+Each case is evaluated across all four plan options:
+- **Fiber 100** → modeled monthly value **$40**
+- **Fiber 300** → modeled monthly value **$60**
+- **Fiber Gig** → modeled monthly value **$80**
+- **2 Gig Fiber** → modeled monthly value **$120**
 
-### 3. It tests all available plans
-The engine evaluates all four available plans one by one:
-- Fiber 100
-- Fiber 300
-- Fiber Gig
-- 2 Gig Fiber
-
-For each plan, it checks both:
-- the financial case
-- the demand fit for that household
-
-### 4. It calculates break-even
-For each plan, it calculates:
-
+### 4. Break-even is calculated
 **Break-even months = installation cost ÷ monthly plan value**
 
-This tells us how long it would take to recover the upfront install investment.
+This means break-even changes based on both:
+- geography / install cost tier
+- the plan’s monthly modeled value
 
-### 5. It scores risk
-The engine then adds a base risk score using signals like:
-- likely switching intent
+### 5. Risk score is built
+The engine scores:
+- switching likelihood
+- retention outlook
+- break-even economics
 - credit profile
-- expected retention
-- whether the customer may move or sell before break-even
+- likely move/sale timing
 
-This answers:
-**“Is this investment likely to make business sense?”**
+### 6. Demand fit is added
+A plan is adjusted up or down depending on:
+- number of household users
+- number of active devices
 
-### 6. It adjusts for household demand
-Then it checks whether the plan fits the household’s usage:
-- smaller households with fewer devices need less speed
-- larger households with many devices need more speed
-
-This creates a **demand-fit adjustment** so the engine does not only optimize for cost, but also for customer need.
-
-### 7. It decides the best plan
-After evaluating all four plans, the engine picks:
-- the lowest-cost approved plan, if available
+### 7. Best-fit plan is selected
+The system chooses:
+- the lowest-cost approved plan
 - otherwise the lowest-cost reviewable plan
-- otherwise the highest-scoring fallback option
+- otherwise the highest-scoring fallback
 
-This keeps recommendations practical instead of always jumping to the most expensive plan.
+### 8. Confidence is separate
+- **Recommendation** = should we do this?
+- **Confidence** = how sure are we?
 
-### 8. It adds confidence
-Confidence is separate from the investment recommendation.
-
-- **Recommendation** answers: “Should we do this?”
-- **Confidence** answers: “How sure are we?”
-
-Confidence is influenced by things like:
-- homeowner vs renter
-- new vs existing resident
-- lease length
-- likely renewal
-- whether a home sale is expected soon
-
-### 9. It explains how to improve the case
-If the result is not ideal, the engine also tells you what could improve it, such as:
-- better credit profile
-- longer expected tenure
-- lower install cost
+### 9. Improvement suggestions are added
+If a case is weak, the system explains what would improve it:
+- stronger credit
+- longer tenure
 - shorter break-even
-- stronger switching motivation
-
-That makes the output more actionable for both internal teams and customer-facing conversations.
+- lower install cost
+- better switching motivation
 """
     )
-
+    
 
 def render_available_plans_tab() -> None:
     st.subheader("Available Plans")
-    st.caption("A simple side-by-side view to explain the differences to customers.")
-
+    st.caption("A side-by-side plan view for customer conversations and product comparison.")
     cols = st.columns(4)
-    plans = main.PLANS
 
-    for col, plan in zip(cols, plans):
+    for col, plan in zip(cols, main.PLANS):
         with col:
             speed = plan["speed_mbps"]
             if speed <= 100:
+                badge = "Entry plan"
+                kind = "info"
                 fit = "Light usage"
                 users = "1-2 users"
                 devices = "Up to ~5 devices"
             elif speed <= 300:
+                badge = "Balanced value"
+                kind = "success"
                 fit = "Moderate usage"
                 users = "2-4 users"
                 devices = "Up to ~10 devices"
             elif speed <= 1000:
+                badge = "Popular performance option"
+                kind = "warning"
                 fit = "Heavy household usage"
                 users = "4-6 users"
                 devices = "10+ devices"
             else:
+                badge = "Premium top tier"
+                kind = "error"
                 fit = "Very high-demand usage"
                 users = "Large / advanced households"
                 devices = "Many active devices"
 
+            st.markdown("<div class='card'>", unsafe_allow_html=True)
+            st.markdown(f"### {plan['name']}")
             st.markdown(
                 f"""
-### {plan["name"]}
 **Speed:** {plan["speed_mbps"]} Mbps  
 **Modeled Monthly Value:** ${plan["monthly_price"]:.2f}
 
@@ -363,127 +464,166 @@ def render_available_plans_tab() -> None:
 {PLAN_DESCRIPTIONS.get(plan["name"], "")}
 """
             )
-
-            if plan["name"] == "Fiber 100":
-                st.info("Entry plan")
-            elif plan["name"] == "Fiber 300":
-                st.success("Balanced value")
-            elif plan["name"] == "Fiber Gig":
-                st.warning("Popular performance option")
-            else:
-                st.error("Premium top tier")
-
+            getattr(st, kind)(badge)
+            
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown("### Plain-English difference")
     st.write("- **Fiber 100** is the basic option for lighter use.")
     st.write("- **Fiber 300** is a balanced middle option for most everyday households.")
     st.write("- **Fiber Gig** is better for larger or heavier-use homes.")
     st.write("- **2 Gig Fiber** is the premium option when speed demand is very high.")
+    
 
+render_header()
 
-st.title("Fiber Investment Decision Engine")
-st.caption("AI-assisted decisioning for fiber deployment, with recommendation logic, confidence scoring, and portfolio analytics.")
-
-tab0, tab1, tab2, tab3 = st.tabs([
+tab_plans, tab_logic, tab_single, tab_bulk = st.tabs([
+    "📶 Available Plans",
     "🧠 Decision Reasoning Logic",
     "🎯 Individual Decision",
-    "📊 Portfolio Analysis",
-    "📶 Available Plans",
+    "📊 Bulk Analysis",
 ])
 
-with tab0:
+with tab_plans:
+    render_available_plans_tab()
+
+with tab_logic:
     render_reasoning_tab()
 
-with tab1:
+with tab_single:
     st.subheader("Evaluate One Customer")
-    with st.form("single_customer_form"):
-        col1, col2 = st.columns(2)
+    left, right = st.columns([1, 1])
 
-        with col1:
-            customer_name = st.text_input("Customer name", value="John")
-            customer_type = st.selectbox("Customer type", ["homeowner", "renter"])
-            resident_status = st.selectbox("Resident status", ["existing", "new"])
-            household_size = st.number_input("Number of people in household", min_value=1, value=3, step=1)
-            device_count = st.number_input("Number of active devices", min_value=1, value=8, step=1)
-            current_provider = st.text_input("Current provider", value="comcast")
-            is_unhappy = st.selectbox("Unhappy with current provider", ["yes", "no"])
+    with left:
+        customer_name = st.text_input("Customer name", value="")
+        customer_type = st.selectbox("Customer type", ["homeowner", "renter"], index=0)
+        resident_status = st.selectbox("Resident status", ["existing", "new"], index=0)
+        household_size = st.number_input("Number of people in household", min_value=1, value=1, step=1)
+        device_count = st.number_input("Number of active devices", min_value=1, value=1, step=1)
+        current_provider = st.text_input("Current provider", value="")
+        is_unhappy = st.selectbox("Unhappy with current provider", ["yes", "no"], index=0)
+        
+    with right:
+        state_options = [""] + sorted([
+            "CA", "NY", "NJ", "WA", "MA", "TX", "FL", "IL", "CO", "GA", "KS", "OK", "AR", "MO", "IA"
+        ])
+        state = st.selectbox("State", state_options, index=0)
+        credit_score = st.number_input("Credit score", min_value=300, max_value=850, value=720, step=1)
 
-        with col2:
-            state = st.selectbox("State", sorted([
-                "CA", "NY", "NJ", "WA", "MA", "TX", "FL", "IL", "CO", "GA", "KS", "OK", "AR", "MO", "IA"
-            ]))
-            credit_score = st.number_input("Credit score", min_value=300, max_value=850, value=720, step=1)
+        if customer_type == "homeowner":
+            planning_to_sell = st.selectbox("Planning to sell soon", ["no", "yes"], index=0)
+            months_until_sale = st.number_input(
+                "Months until sale",
+                min_value=0,
+                value=0,
+                step=1,
+                disabled=(planning_to_sell != "yes"),
+            )
+            lease_months_remaining = 0
+            likely_to_renew = "n/a"
+        else:
+            planning_to_sell = "n/a"
+            months_until_sale = 0
+            lease_months_remaining = st.number_input("Lease months remaining", min_value=0, value=12, step=1)
+            likely_to_renew = st.selectbox("Likely to renew", ["yes", "no"], index=0)
 
-            if customer_type == "homeowner":
-                planning_to_sell = st.selectbox("Planning to sell soon", ["no", "yes"])
-                months_until_sale = st.number_input("Months until sale", min_value=0, value=0, step=1, disabled=(planning_to_sell == "no"))
-                lease_months_remaining = 0
-                likely_to_renew = "n/a"
-            else:
-                planning_to_sell = "n/a"
-                months_until_sale = 0
-                lease_months_remaining = st.number_input("Lease months remaining", min_value=0, value=12, step=1)
-                likely_to_renew = st.selectbox("Likely to renew", ["yes", "no"])
+        evaluate_clicked = st.button("Evaluate Customer", type="primary", width="stretch")
+        
+    if evaluate_clicked:
+        if not customer_name.strip():
+            st.error("Please enter customer name.")
+        elif not state:
+            st.error("Please select a state.")
+        else:
+            with st.spinner("Evaluating customer profile, economics, and best-fit plan..."):
+                time.sleep(3)
+                base_customer = main.create_base_customer_from_inputs(
+                    customer_name=customer_name,
+                    customer_type=customer_type,
+                    resident_status=resident_status,
+                    household_size=int(household_size),
+                    device_count=int(device_count),
+                    current_provider=current_provider.strip().lower() or "none",
+                    is_unhappy_with_current_provider=is_unhappy,
+                    planning_to_sell=planning_to_sell,
+                    months_until_sale=int(months_until_sale),
+                    lease_months_remaining=int(lease_months_remaining),
+                    likely_to_renew=likely_to_renew,
+                    credit_score=int(credit_score),
+                    state=state,
+                )
+                result = main.solve_customer(base_customer)
 
-        submitted = st.form_submit_button("Evaluate Customer", type="primary")
+            render_single_result(result)
 
-    if submitted:
-        base_customer = main.create_base_customer_from_inputs(
-            customer_name=customer_name,
-            customer_type=customer_type,
-            resident_status=resident_status,
-            household_size=int(household_size),
-            device_count=int(device_count),
-            current_provider=current_provider.strip().lower() or "none",
-            is_unhappy_with_current_provider=is_unhappy,
-            planning_to_sell=planning_to_sell,
-            months_until_sale=int(months_until_sale),
-            lease_months_remaining=int(lease_months_remaining),
-            likely_to_renew=likely_to_renew,
-            credit_score=int(credit_score),
-            state=state,
+with tab_bulk:
+    st.subheader("Bulk Analysis")
+    upload_col, info_col = st.columns([1, 1])
+
+    with upload_col:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.markdown("### Upload CSV")
+        st.markdown(
+            "Required columns: `customer_name, customer_type, resident_status, state, credit_score, "
+            "household_size, device_count, current_provider, is_unhappy`"
         )
-        result = main.solve_customer(base_customer)
-        render_single_result(result)
-
-with tab2:
-    st.subheader("Portfolio Evaluation from CSV")
-    st.markdown(
-        "Required columns: `customer_name, customer_type, resident_status, state, credit_score, "
-        "household_size, device_count, current_provider, is_unhappy`"
-    )
-    st.markdown(
-        "Optional columns: `planning_to_sell, months_until_sale, lease_months_remaining, likely_to_renew`"
-    )
-
-    uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
-
-    if uploaded_file is not None:
+        st.markdown(
+            "Optional columns: `planning_to_sell, months_until_sale, lease_months_remaining, likely_to_renew`"
+        )
+        uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+        if uploaded_file is not None:
+            st.success(f"File loaded: {uploaded_file.name}")
+            evaluate_bulk = st.button("Evaluate Bulk File", type="primary", width="stretch")
+        else:
+            evaluate_bulk = False
+        
+    with info_col:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.markdown("### What happens here")
+        st.write("- Upload a customer CSV")
+        st.write("- The engine evaluates every row")
+        st.write("- You get a recommendation mix, plan mix, and results table")
+        st.write("- You can download the evaluated results as CSV")
+        
+    if uploaded_file is not None and evaluate_bulk:
         try:
-            results = load_results_from_uploaded_csv(uploaded_file)
-            df = results_to_dataframe(results)
-            summary = compute_portfolio_summary(results)
+            with st.spinner("Evaluating bulk file and preparing portfolio dashboard..."):
+                time.sleep(2)
+                results = load_results_from_uploaded_csv(uploaded_file)
+                df = results_to_dataframe(results)
+                summary = compute_portfolio_summary(results)
 
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Customers", summary["total_customers"])
-            c2.metric("Approves", summary["approves"])
-            c3.metric("Reviews", summary["reviews"])
-            c4.metric("Declines", summary["declines"])
+            m1, m2, m3, m4 = st.columns(4)
+            with m1:
+                render_metric_tile("Customers", str(summary["total_customers"]))
+            with m2:
+                render_metric_tile("Approves", str(summary["approves"]))
+            with m3:
+                render_metric_tile("Reviews", str(summary["reviews"]))
+            with m4:
+                render_metric_tile("Declines", str(summary["declines"]))
 
-            c5, c6, c7, c8 = st.columns(4)
-            c5.metric("Avg Break-even", f"{summary['avg_break_even']:.1f} mo")
-            c6.metric("Avg Score", f"{summary['avg_final_score']:.1f}")
-            c7.metric("Avg Install Cost", f"${summary['avg_install_cost']:,.0f}")
-            c8.metric("Top Plan", summary["top_plan"])
+            m5, m6, m7, m8 = st.columns(4)
+            with m5:
+                render_metric_tile("Avg Break-even", f"{summary['avg_break_even']:.1f} mo")
+            with m6:
+                render_metric_tile("Avg Score", f"{summary['avg_final_score']:.1f}")
+            with m7:
+                render_metric_tile("Avg Install Cost", f"${summary['avg_install_cost']:,.0f}")
+            with m8:
+                render_metric_tile("Top Plan", summary["top_plan"])
 
-            st.markdown("### Confidence Mix")
-            cc1, cc2, cc3 = st.columns(3)
-            cc1.metric("🟢 High", summary["high_confidence"])
-            cc2.metric("🟡 Medium", summary["medium_confidence"])
-            cc3.metric("🔴 Low", summary["low_confidence"])
+            conf1, conf2, conf3 = st.columns(3)
+            with conf1:
+                render_metric_tile("🟢 High Confidence", str(summary["high_confidence"]))
+            with conf2:
+                render_metric_tile("🟡 Medium Confidence", str(summary["medium_confidence"]))
+            with conf3:
+                render_metric_tile("🔴 Low Confidence", str(summary["low_confidence"]))
 
             chart_col1, chart_col2 = st.columns(2)
 
             with chart_col1:
+                st.markdown("<div class='card'>", unsafe_allow_html=True)
                 st.markdown("### Recommendation Mix")
                 rec_chart_df = pd.DataFrame({
                     "Recommendation": ["APPROVE", "REVIEW", "DECLINE"],
@@ -494,8 +634,9 @@ with tab2:
                     ],
                 }).set_index("Recommendation")
                 st.bar_chart(rec_chart_df)
-
+                
             with chart_col2:
+                st.markdown("<div class='card'>", unsafe_allow_html=True)
                 st.markdown("### Plan Distribution")
                 plan_chart_df = pd.DataFrame({
                     "Plan": list(summary["plan_counts"].keys()),
@@ -503,9 +644,10 @@ with tab2:
                 }).set_index("Plan")
                 if not plan_chart_df.empty:
                     st.bar_chart(plan_chart_df)
-
-            st.markdown("### Results")
-            st.dataframe(df, use_container_width=True)
+                
+            st.markdown("<div class='card'>", unsafe_allow_html=True)
+            st.markdown("### Results Table")
+            st.dataframe(df, width="stretch")
 
             csv_bytes = df.to_csv(index=False).encode("utf-8")
             st.download_button(
@@ -513,9 +655,8 @@ with tab2:
                 data=csv_bytes,
                 file_name="portfolio_results.csv",
                 mime="text/csv",
+                width="stretch",
             )
+            
         except Exception as e:
             st.error(f"Could not process CSV: {e}")
-
-with tab3:
-    render_available_plans_tab()
