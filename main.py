@@ -1,5 +1,8 @@
 from dataclasses import dataclass
 from collections import Counter
+from pathlib import Path
+import csv
+import math
 
 
 PLANS = [
@@ -487,6 +490,59 @@ def build_plan_justification(chosen_plan: dict, evaluated_plans: list[dict]) -> 
     return reasons
 
 
+def build_improvement_suggestions(result: dict) -> list[str]:
+    customer = result["customer"]
+    recommendation = result["recommendation"]
+    suggestions = []
+    break_even_months = result["break_even_months"]
+
+    if recommendation == "APPROVE":
+        suggestions.append("This case is already approved. Focus on execution and conversion.")
+        return suggestions
+
+    if customer.credit_score < 650:
+        suggestions.append("Improving the customer credit profile into the 650+ range would strengthen the decision.")
+    elif customer.credit_score < 750:
+        suggestions.append("A stronger credit profile in the 750+ range would further improve confidence and approval odds.")
+
+    if break_even_months > 12:
+        suggestions.append("A shorter break-even period would help. This could come from lower installation cost or higher monthly revenue.")
+
+    if customer.customer_type == "homeowner" and customer.planning_to_sell == "yes":
+        needed_months = math.ceil(break_even_months)
+        if customer.months_until_sale < break_even_months:
+            suggestions.append(
+                f"If the customer expected to stay at least {needed_months} months, the capital recovery outlook would improve."
+            )
+
+    if customer.customer_type == "renter":
+        needed_months = math.ceil(break_even_months)
+        if customer.lease_months_remaining < break_even_months:
+            suggestions.append(
+                f"A lease term or expected stay of at least {needed_months} months would improve the recovery case."
+            )
+        if customer.likely_to_renew == "no":
+            suggestions.append("A likely renewal would improve retention confidence for this renter case.")
+
+    if customer.current_provider != "none" and customer.is_unhappy_with_current_provider == "no":
+        suggestions.append("A stronger switching trigger or clear dissatisfaction with the current provider would improve conversion likelihood.")
+
+    demand_score, _ = calculate_demand_fit_score(
+        customer,
+        {"name": customer.recommended_plan_name, "speed_mbps": customer.recommended_plan_speed_mbps},
+    )
+    if demand_score < 0:
+        suggestions.append("A higher-speed plan may better fit the household’s usage pattern and improve demand alignment.")
+
+    if result["confidence"] == "Low":
+        suggestions.append("Additional certainty on tenure, renewal likelihood, or move timing would improve confidence.")
+
+    if not suggestions:
+        suggestions.append("This case is close. Small improvements in economics or retention certainty could move it upward.")
+
+    return suggestions
+
+
 def create_base_customer_from_inputs(
     customer_name: str,
     customer_type: str,
@@ -543,7 +599,7 @@ def solve_customer(base_customer: CustomerCase) -> dict:
     confidence_label, _ = calculate_confidence(customer)
     break_even_months = calculate_break_even_months(customer.installation_cost, customer.monthly_plan_value)
 
-    return {
+    result = {
         "customer": customer,
         "evaluated_plans": evaluated_plans,
         "plan_justification": plan_justification,
@@ -554,6 +610,8 @@ def solve_customer(base_customer: CustomerCase) -> dict:
         "confidence": confidence_label,
         "break_even_months": break_even_months,
     }
+    result["improvement_suggestions"] = build_improvement_suggestions(result)
+    return result
 
 
 def print_case_result(result: dict) -> None:
@@ -566,6 +624,7 @@ def print_case_result(result: dict) -> None:
     recommendation = result["recommendation"]
     confidence_label = result["confidence"]
     break_even_months = result["break_even_months"]
+    improvement_suggestions = result["improvement_suggestions"]
 
     _, reasons = evaluate_risk(customer)
     _, confidence_reasons = calculate_confidence(customer)
@@ -638,7 +697,65 @@ def print_case_result(result: dict) -> None:
     for reason in confidence_reasons:
         print(f"  - {reason}")
 
+    print("\nWhat Would Improve This Decision:")
+    for reason in improvement_suggestions:
+        print(f"  - {reason}")
+
     print("=========================================\n")
+
+
+def export_results_to_csv(results: list[dict], output_path: str) -> None:
+    fieldnames = [
+        "customer_name",
+        "customer_type",
+        "resident_status",
+        "state",
+        "household_size",
+        "device_count",
+        "current_provider",
+        "credit_score",
+        "recommended_plan_name",
+        "recommended_plan_speed_mbps",
+        "monthly_plan_value",
+        "installation_cost",
+        "installation_cost_tier",
+        "break_even_months",
+        "base_score",
+        "demand_score",
+        "final_score",
+        "recommendation",
+        "confidence",
+        "improvement_suggestions",
+    ]
+
+    with open(output_path, mode="w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for result in results:
+            customer = result["customer"]
+            writer.writerow({
+                "customer_name": customer.customer_name,
+                "customer_type": customer.customer_type,
+                "resident_status": customer.resident_status,
+                "state": customer.state,
+                "household_size": customer.household_size,
+                "device_count": customer.device_count,
+                "current_provider": customer.current_provider,
+                "credit_score": customer.credit_score,
+                "recommended_plan_name": customer.recommended_plan_name,
+                "recommended_plan_speed_mbps": customer.recommended_plan_speed_mbps,
+                "monthly_plan_value": f"{customer.monthly_plan_value:.2f}",
+                "installation_cost": f"{customer.installation_cost:.2f}",
+                "installation_cost_tier": customer.installation_cost_tier,
+                "break_even_months": f"{result['break_even_months']:.1f}",
+                "base_score": result["base_score"],
+                "demand_score": result["demand_score"],
+                "final_score": result["final_score"],
+                "recommendation": result["recommendation"],
+                "confidence": result["confidence"],
+                "improvement_suggestions": " | ".join(result["improvement_suggestions"]),
+            })
 
 
 def print_portfolio_summary(results: list[dict]) -> None:
@@ -719,12 +836,95 @@ def run_sample_portfolio_mode() -> None:
         results.append(result)
 
     print_portfolio_summary(results)
+    output_path = "sample_portfolio_results.csv"
+    export_results_to_csv(results, output_path)
+    print(f"Portfolio results exported to: {output_path}\n")
+
+
+def load_customers_from_csv(filepath: str) -> list[CustomerCase]:
+    customers = []
+
+    with open(filepath, mode="r", newline="", encoding="utf-8") as csvfile:
+        reader = csv.DictReader(csvfile)
+
+        required_columns = {
+            "customer_name",
+            "customer_type",
+            "resident_status",
+            "state",
+            "credit_score",
+            "household_size",
+            "device_count",
+            "current_provider",
+            "is_unhappy",
+        }
+
+        missing = required_columns - set(reader.fieldnames or [])
+        if missing:
+            raise ValueError(f"CSV is missing required columns: {', '.join(sorted(missing))}")
+
+        for row in reader:
+            customer_type = row["customer_type"].strip().lower()
+            customer_name = row["customer_name"].strip()
+            resident_status = row["resident_status"].strip().lower()
+            state = row["state"].strip().upper()
+            credit_score = int(row["credit_score"])
+            household_size = int(row["household_size"])
+            device_count = int(row["device_count"])
+            current_provider = row["current_provider"].strip().lower()
+            is_unhappy = row["is_unhappy"].strip().lower()
+
+            if customer_type == "homeowner":
+                planning_to_sell = "no"
+                months_until_sale = 0
+                lease_months_remaining = 0
+                likely_to_renew = "n/a"
+            else:
+                planning_to_sell = "n/a"
+                months_until_sale = 0
+                lease_months_remaining = 12
+                likely_to_renew = "yes"
+
+            base_customer = create_base_customer_from_inputs(
+                customer_name=customer_name,
+                customer_type=customer_type,
+                resident_status=resident_status,
+                household_size=household_size,
+                device_count=device_count,
+                current_provider=current_provider,
+                is_unhappy_with_current_provider=is_unhappy,
+                planning_to_sell=planning_to_sell,
+                months_until_sale=months_until_sale,
+                lease_months_remaining=lease_months_remaining,
+                likely_to_renew=likely_to_renew,
+                credit_score=credit_score,
+                state=state,
+            )
+            customers.append(base_customer)
+
+    return customers
+
+
+def run_csv_portfolio_mode() -> None:
+    filepath = input("Enter CSV file path: ").strip()
+    if filepath.lower() == "exit":
+        raise KeyboardInterrupt
+
+    customers = load_customers_from_csv(filepath)
+    results = [solve_customer(customer) for customer in customers]
+    print_portfolio_summary(results)
+
+    input_path = Path(filepath)
+    output_path = input_path.with_name(f"{input_path.stem}_results.csv")
+    export_results_to_csv(results, str(output_path))
+    print(f"CSV evaluation results exported to: {output_path}\n")
 
 
 def main() -> None:
     print("Fiber Investment Decision Tool")
     print("Type 'exit' at any prompt to quit.")
-    print("Type 'portfolio' at customer name to run sample portfolio mode.\n")
+    print("Type 'portfolio' at customer name to run sample portfolio mode.")
+    print("Type 'csv' at customer name to run CSV portfolio mode.\n")
 
     while True:
         try:
@@ -734,6 +934,9 @@ def main() -> None:
                 break
             if name.lower() == "portfolio":
                 run_sample_portfolio_mode()
+                continue
+            if name.lower() == "csv":
+                run_csv_portfolio_mode()
                 continue
 
             customer_type = get_customer_type_input()
