@@ -15,7 +15,15 @@ st.markdown(
     """
     <style>
     .stApp {
-        background: linear-gradient(180deg, #f5f7fb 0%, #eef4ff 100%);
+        background: #f4f6fa;
+    }
+
+    body, p, div, span, label {
+        color: #1f2937 !important;
+    }
+
+    h1, h2, h3 {
+        color: #111827 !important;
     }
 
     .block-container {
@@ -29,13 +37,14 @@ st.markdown(
     }
 
     .subtitle {
-        color: #4f5d75;
+        color: #334155;
         margin-top: -0.5rem;
         margin-bottom: 1rem;
     }
 
     .card {
         background: white;
+        color: #1f2937;
         padding: 1.25rem 1.25rem 1rem 1.25rem;
         border-radius: 16px;
         border: 1px solid #e6ebf2;
